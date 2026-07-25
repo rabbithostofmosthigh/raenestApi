@@ -6,7 +6,7 @@ const nodemailer = require("nodemailer");
 // ✅ CORS MUST come FIRST, before express.json()
 app.use(
   cors({
-    origin: "https://core-raenest-app.vercel.app",
+    origin: "https://helpdesk-raenest.vercel.app",
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
     credentials: true,
