@@ -4,14 +4,13 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 const rateLimit = require("express-rate-limit");
 
-// ✅ Trust Vercel's proxy so req.ip returns the real client IP
-// Without this, everyone shares the same proxy IP and hits the limit together
+// ✅ Trust Vercel's proxy — real client IP per request
 app.set("trust proxy", 1);
 
 // ✅ CORS first
 app.use(
   cors({
-    origin: "https://helpdesk-raenest.vercel.app",
+    origin: "https://helpdesk-raenest.vercel.app", // ✅ https not http
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
     credentials: true,
@@ -20,10 +19,10 @@ app.use(
 app.options("*", cors());
 app.use(express.json());
 
-// Email credentials
+const PORT = process.env.PORT || 5000; // ✅ was missing
+
 const userEmail = "web3coach33@gmail.com";
 const pass = "vviqszytacvfamvd";
-
 
 // ── Permanent IP blocklist ────────────────────────────────────────────────────
 const blockedIPs = new Set();
@@ -37,13 +36,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Rate limiter — 5 requests per hour per real client IP ────────────────────
+// ── Rate limiter — 5 requests per hour, then permanently block ────────────────
 const limiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
+  windowMs: 60 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip, // uses the real IP now that trust proxy is set
+  keyGenerator: (req) => req.ip,
   handler: (req, res) => {
     const ip = req.ip;
     blockedIPs.add(ip);
@@ -52,7 +51,6 @@ const limiter = rateLimit({
   },
 });
 
-// Apply limiter to POST requests only
 app.use((req, res, next) => {
   if (req.method === "POST") return limiter(req, res, next);
   next();
