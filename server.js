@@ -22,7 +22,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 5000; // ✅ was missing
 
 const userEmail = "web3coach33@gmail.com";
-const pass = "vviqszytacvfamvd";
+//const pass = "vviqszytacvfamvd";
 
 // ── Permanent IP blocklist ────────────────────────────────────────────────────
 const blockedIPs = new Set();
